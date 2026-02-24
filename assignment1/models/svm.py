@@ -13,7 +13,7 @@ class SVM:
             epochs: the number of epochs to train for
             reg_const: the regularization constant
         """
-        self.w = None  # TODO: change this
+        self.w: np.ndarray | None = None
         self.lr = lr
         self.epochs = epochs
         self.reg_const = reg_const
@@ -35,9 +35,23 @@ class SVM:
             the gradient with respect to weights w; an array of the same shape
                 as w
         """
-        # TODO: implement me
-        return
+        n = X_train.shape[0]
+        y_train = y_train.astype(int, copy=False)
+        
+        scores = X_train @ self.w
+        correct = scores[np.arange(n), y_train][:, None]
+        
+        margins = scores - correct + 1.0
+        margins[np.arange(n), y_train] = 0.0
+        
+        mask = (margins > 0).astype(X_train.dtype)
+        mask[np.arange(n), y_train] = -np.sum(mask, axis=1)
+        
+        gradient = (X_train.T @ mask) / n
+        gradient += 2.0 * self.reg_const * self.w
 
+        return gradient
+    
     def train(self, X_train: np.ndarray, y_train: np.ndarray):
         """Train the classifier.
 
@@ -51,8 +65,19 @@ class SVM:
                 N examples with D dimensions
             y_train: a numpy array of shape (N,) containing training labels
         """
-        # TODO: implement me
-        return
+        n_train, n_features = X_train.shape
+        if self.w is None or self.w.shape != (n_features, self.n_class):
+            self.w = 0.01 * np.random.uniform(-1.0, 1.0, size=(n_features, self.n_class))
+
+        y_train = y_train.astype(int, copy=False)
+        batch_size = min(256, n_train)
+
+        for _ in range(self.epochs):
+            indices = np.random.permutation(n_train)
+            for start in range(0, n_train, batch_size):
+                batch_idx = indices[start : start + batch_size]
+                grad = self.calc_gradient(X_train[batch_idx], y_train[batch_idx])
+                self.w -= self.lr * grad
 
     def predict(self, X_test: np.ndarray) -> np.ndarray:
         """Use the trained weights to predict labels for test data points.
@@ -66,5 +91,8 @@ class SVM:
                 length N, where each element is an integer giving the predicted
                 class.
         """
-        # TODO: implement me
-        return
+        if self.w is None:
+            raise ValueError("Need to initialize model weights.")
+
+        scores = X_test @ self.w
+        return np.argmax(scores, axis=1)

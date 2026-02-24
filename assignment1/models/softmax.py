@@ -13,11 +13,12 @@ class Softmax:
             epochs: the number of epochs to train for
             reg_const: the regularization constant
         """
-        self.w = None  # TODO: change this
+        self.w: np.ndarray | None = None
         self.lr = lr
         self.epochs = epochs
         self.reg_const = reg_const
         self.n_class = n_class
+        self.feature_scale: np.ndarray | None = None
 
     def calc_gradient(self, X_train: np.ndarray, y_train: np.ndarray) -> np.ndarray:
         """Calculate gradient of the softmax loss.
@@ -34,8 +35,19 @@ class Softmax:
         Returns:
             gradient with respect to weights w; an array of same shape as w
         """
-        # TODO: implement me
-        return
+        n = X_train.shape[0]
+        y_train = y_train.astype(int, copy=False)
+
+        scores = X_train @ self.w
+        scores -= np.max(scores, axis=1, keepdims=True)
+
+        exp_scores = np.exp(scores)
+        probs = exp_scores / np.sum(exp_scores, axis=1, keepdims=True)
+        probs[np.arange(n), y_train] -= 1.0
+
+        gradient = (X_train.T @ probs) / n
+        gradient += 2.0 * self.reg_const * self.w
+        return gradient
 
     def train(self, X_train: np.ndarray, y_train: np.ndarray):
         """Train the classifier.
@@ -50,8 +62,23 @@ class Softmax:
                 N examples with D dimensions
             y_train: a numpy array of shape (N,) containing training labels
         """
-        # TODO: implement me
-        return
+        n_train, n_features = X_train.shape
+        self.feature_scale = np.std(X_train, axis=0)
+        self.feature_scale[self.feature_scale < 1e-8] = 1.0
+        X_train_scaled = X_train / self.feature_scale
+
+        if self.w is None or self.w.shape != (n_features, self.n_class):
+            self.w = 0.01 * np.random.uniform(-1.0, 1.0, size=(n_features, self.n_class))
+
+        y_train = y_train.astype(int, copy=False)
+        batch_size = min(256, n_train)
+
+        for _ in range(self.epochs):
+            indices = np.random.permutation(n_train)
+            for start in range(0, n_train, batch_size):
+                batch_idx = indices[start : start + batch_size]
+                grad = self.calc_gradient(X_train_scaled[batch_idx], y_train[batch_idx])
+                self.w -= self.lr * grad
 
     def predict(self, X_test: np.ndarray) -> np.ndarray:
         """Use the trained weights to predict labels for test data points.
@@ -65,5 +92,13 @@ class Softmax:
                 length N, where each element is an integer giving the predicted
                 class.
         """
-        # TODO: implement me
-        return
+        if self.w is None:
+            raise ValueError("Need to initialize model weights.")
+
+        if self.feature_scale is None:
+            X_test_scaled = X_test
+        else:
+            X_test_scaled = X_test / self.feature_scale
+
+        scores = X_test_scaled @ self.w
+        return np.argmax(scores, axis=1)

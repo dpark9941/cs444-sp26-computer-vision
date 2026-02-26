@@ -113,7 +113,9 @@ class NeuralNetwork:
         return 
 
     def mse(self, y: np.ndarray, p: np.ndarray) -> np.ndarray:
-        # TODO implement this
+        # TODO implement this. Your MSE loss should be implemented as:
+        # MSE = $0.5 \frac{1}{NC} \sum \limits_{i=1}^N \sum \limits_{j=1}^C (y_{ij} - p_{ij})^2$
+        # where y and p are of shape (N, C).
         return 
     
     def mse_grad(self, y: np.ndarray, p: np.ndarray) -> np.ndarray:
@@ -129,12 +131,14 @@ class NeuralNetwork:
         Returns:
             Matrix of shape (N, C) 
         """
-        self.inputs = X
+
+        self.inputs = X # For use later during backpropagation
         self.outputs = {}
-        # TODO: implement me. You'll want to store the input as well as the 
-        # output of each layer in self.outputs as they will be used during 
-        # back-propagation. You can use functions like self.linear and self.
-        # relu.
+
+        # TODO: implement me. You'll want to store the output of each layer in 
+        # self.outputs as they will be used during backpropagation. You can use 
+        # functions like self.linear and self.relu to help organize your code.
+
         return 
 
     def backward(self, y: np.ndarray) -> float:
@@ -144,15 +148,14 @@ class NeuralNetwork:
         Returns:
             Total loss
         """
+
         self.gradients = {}
+
         # TODO: implement me. You'll want to store the gradient of each
         # parameter in self.gradients as it will be used when updating each
         # parameter and during numerical gradient checks. You can use the same
         # keys as self.params. You can add functions like self.linear_grad,
         # self.relu_grad, and self.sigmoid_grad if it helps organize your code.
-        # When implementing full batch GD, you should think about how the 
-        # gradient calculations presented in lecture should be adapted when a 
-        # batch dimension is introduced.
 
         return
 
@@ -171,6 +174,7 @@ class NeuralNetwork:
             b2: beta 2 parameter (for Adam)
             eps: epsilon to prevent division by zero (for Adam)
         """
+        
         if self.opt == 'SGD':
             # TODO: implement SGD optimizer here
             pass

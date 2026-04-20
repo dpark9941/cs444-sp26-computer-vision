@@ -64,7 +64,7 @@ class NeuralNetwork:
             the output
         """
         # TODO: implement me
-        return 
+        return np.dot(X, W) + b
     
     def linear_grad(self, W: np.ndarray, X: np.ndarray, de_dz: np.ndarray) -> np.ndarray:
         """Gradient of linear layer
@@ -79,8 +79,11 @@ class NeuralNetwork:
                 de_db: gradient of loss with respect to b
                 de_dx: gradient of loss with respect to X
         """
+        de_dw = np.dot(X.T, de_dz)
+        de_db = np.sum(de_dz, axis=0)
+        de_dx = np.dot(de_dz, W.T)
         # TODO: implement me
-        return 
+        return de_dw, de_db, de_dx
 
     def relu(self, X: np.ndarray) -> np.ndarray:
         """Rectified Linear Unit (ReLU).
@@ -90,7 +93,7 @@ class NeuralNetwork:
             the output
         """
         # TODO: implement me
-        return 
+        return np.maximum(0, X)
 
     def relu_grad(self, X: np.ndarray) -> np.ndarray:
         """Gradient of Rectified Linear Unit (ReLU).
@@ -100,27 +103,27 @@ class NeuralNetwork:
             the output data
         """
          # TODO: implement me
-        return 
+        return (X > 0).astype(float)
 
     def sigmoid(self, x: np.ndarray) -> np.ndarray:
         # TODO ensure that this is numerically stable
-        return 
+        return 1 / (1 + np.exp(-x))
     
     def sigmoid_grad(self, X: np.ndarray) -> np.ndarray:
         # TODO implement this
         # Here, X can be either the input to the sigmoid or the output of the
         # sigmoid, depending on your implementation.
-        return 
+        return self.sigmoid(X) * (1 - self.sigmoid(X))
 
     def mse(self, y: np.ndarray, p: np.ndarray) -> np.ndarray:
         # TODO implement this. Your MSE loss should be implemented as:
         # MSE = $0.5 \frac{1}{NC} \sum \limits_{i=1}^N \sum \limits_{j=1}^C (y_{ij} - p_{ij})^2$
         # where y and p are of shape (N, C).
-        return 
+        return 0.5 * np.mean((y - p) ** 2)
     
     def mse_grad(self, y: np.ndarray, p: np.ndarray) -> np.ndarray:
         # TODO implement this
-        return    
+        return (p - y) / (y.shape[0] * y.shape[1])
 
     def forward(self, X: np.ndarray) -> np.ndarray:
         """Compute the outputs for all of the data samples.
@@ -130,7 +133,7 @@ class NeuralNetwork:
                 testing sample
         Returns:
             Matrix of shape (N, C) 
-        """
+        """ 
 
         self.inputs = X # For use later during backpropagation
         self.outputs = {}
@@ -138,8 +141,32 @@ class NeuralNetwork:
         # TODO: implement me. You'll want to store the output of each layer in 
         # self.outputs as they will be used during backpropagation. You can use 
         # functions like self.linear and self.relu to help organize your code.
+        
+        last_output = X
+        # layers 1 to num_layers - 1 are linear + relu
+        for i in range(1, self.num_layers):
+            W = self.params["W" + str(i)]
+            b = self.params["b" + str(i)]
+            # Linear layer
+            h = self.linear(W, last_output, b)
+            self.outputs["h" + str(i)] = h 
+            # ReLU activation
+            a = self.relu(h)
+            # Store activation output
+            self.outputs["a" + str(i)] = a
+            last_output = a
+        
+        # Last layer is linear + sigmoid
+        i = self.num_layers
+        W = self.params["W" + str(i)]
+        b = self.params["b" + str(i)]
+        h = self.linear(W, last_output, b)
+        self.outputs["h" + str(i)] = h
+        
+        out = self.sigmoid(h)
+        self.outputs["a" + str(i)] = out
 
-        return 
+        return out
 
     def backward(self, y: np.ndarray) -> float:
         """Perform back-propagation and compute the gradients and losses.
@@ -150,14 +177,28 @@ class NeuralNetwork:
         """
 
         self.gradients = {}
-
+        
         # TODO: implement me. You'll want to store the gradient of each
         # parameter in self.gradients as it will be used when updating each
         # parameter and during numerical gradient checks. You can use the same
         # keys as self.params. You can add functions like self.linear_grad,
         # self.relu_grad, and self.sigmoid_grad if it helps organize your code.
+        upstream = self.mse_grad(y, self.outputs["a"+str(self.num_layers)])
+        for i in range(1, self.num_layers+1)[::-1]:
+            if i == self.num_layers:
+                # last layer: linear + Sigmoid
+                upstream = upstream * self.sigmoid_grad(self.outputs["h"+str(i)])
+                de_dw, de_db, de_dx = self.linear_grad(self.params["W"+str(i)], self.outputs["a"+str(i-1)], upstream)
+                upstream = de_dx
+            else:
+                # linear + ReLU
+                upstream = upstream * self.relu_grad(self.outputs["h"+str(i)])
+                de_dw, de_db, de_dx = self.linear_grad(self.params["W"+str(i)], self.outputs["a"+str(i-1)] if i > 1 else self.inputs, upstream)
+                upstream = de_dx
+            self.gradients["W"+str(i)] = de_dw
+            self.gradients["b"+str(i)] = de_db
 
-        return
+        return self.mse(y, self.outputs["a"+str(self.num_layers)])
 
     def update(
         self,
@@ -177,10 +218,32 @@ class NeuralNetwork:
         
         if self.opt == 'SGD':
             # TODO: implement SGD optimizer here
-            pass
+            for key in self.params:
+                if key in self.gradients:
+                    self.params[key] -= lr * self.gradients[key]
+            
         elif self.opt == 'Adam':
             # TODO: (Extra credit) implement Adam optimizer here
-            pass
+            if not hasattr(self, "m"):
+                self.m = {k: np.zeros_like(v) for k, v in self.params.items()}
+                self.v = {k: np.zeros_like(v) for k, v in self.params.items()}
+                self.t = 0
+
+            self.t += 1
+
+            for key in self.params:
+                if key not in self.gradients:
+                    continue
+
+                gradient = self.gradients[key]
+
+                self.m[key] = b1 * self.m[key] + (1 - b1) * gradient
+                self.v[key] = b2 * self.v[key] + (1 - b2) * (gradient ** 2)
+
+                m_hat = self.m[key] / (1 - b1 ** self.t)
+                v_hat = self.v[key] / (1 - b2 ** self.t)
+
+                self.params[key] -= lr * m_hat / (np.sqrt(v_hat) + eps)
         else:
             raise NotImplementedError
         

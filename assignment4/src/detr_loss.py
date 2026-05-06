@@ -248,17 +248,30 @@ class DETRSetCriterion(nn.Module):
         """
         # TODO: Use _get_src_permutation_idx to get the batch and query indices of
         # the matched predictions.
+        batch_idx, src_idx = self._get_src_permutation_idx(indices)
 
         # TODO: Construct a tensor containing the GT class label for every matched query.
+        tgt_classes_matched = torch.cat(
+            [t["labels"][j] for t, (_, j) in zip(targets, indices)]
+        )
 
         # TODO: Fill every query with the no-object label (num_classes) to start, then
         # overwrite just the matched positions with their actual GT class.
+        pred_logits = outputs["pred_logits"]
+        target_classes = torch.full(
+            pred_logits.shape[:2], self.num_classes,
+            dtype=torch.int64, device=pred_logits.device
+        )
+        target_classes[batch_idx, src_idx] = tgt_classes_matched
 
         # TODO: Compute CE loss, weighting the no-object class with self.empty_weight.
         # Sum the log probs over the queries and take the mean over the batch.
         # Using F.cross_entropy with default arguments may not give the correct implementation.
+        loss_ce = F.cross_entropy(
+            pred_logits.transpose(1, 2), target_classes, self.empty_weight
+        )
 
-        return {"loss_ce": ...}
+        return {"loss_ce": loss_ce}
 
     def loss_boxes(self, outputs, targets, indices, num_boxes):
         """L1 and GIoU losses on matched query/target pairs only.
@@ -281,18 +294,29 @@ class DETRSetCriterion(nn.Module):
         """
         # TODO: Use _get_src_permutation_idx to get the batch and query indices of
         # the matched predictions.
+        batch_idx, src_idx = self._get_src_permutation_idx(indices)
 
         # TODO: Construct a tensor containing the GT class label for every matched query.
+        src_boxes = outputs["pred_boxes"][batch_idx, src_idx]
+        tgt_boxes = torch.cat(
+            [t["boxes"][j] for t, (_, j) in zip(targets, indices)]
+        )
 
         # TODO: Compute the L1 box loss.
+        loss_bbox = F.l1_loss(src_boxes, tgt_boxes, reduction="sum") / num_boxes
 
         # TODO: Compute the GIoU box loss. You can use the provided generalized_box_iou
         # function, but remember to convert boxes from cxcywh to xyxy format first. Note:
         # The (i, j) entry of the giou matrix contains the GIoU value between src_boxes[i]
         # and target_boxes[j]. We want to sum over the matched pairs, already aligned
         # by Hungarian matching.
+        giou_matrix = generalized_box_iou(
+            box_cxcywh_to_xyxy(src_boxes),
+            box_cxcywh_to_xyxy(tgt_boxes)
+        )
+        loss_giou = (1 - giou_matrix.diag()).sum() / num_boxes
 
-        return {"loss_bbox": ..., "loss_giou": ...}
+        return {"loss_bbox": loss_bbox, "loss_giou": loss_giou}
 
     def forward(self, outputs, targets):
         """Match predictions to targets and compute all DETR loss terms.
@@ -306,8 +330,14 @@ class DETRSetCriterion(nn.Module):
         """
         # TODO: Use the Hungarian matcher (self.matcher) to find the best matching
         # between predicted queries and GT targets.
+        indices = self.matcher(outputs, targets)
 
         # TODO: Compute all the requested losses and combine them in a dictionary. The
         # keys should match those in self.weight_dict so they can be combined with compute_total_loss.
+        num_boxes = sum(len(t["labels"]) for t in targets)
+        num_boxes = max(num_boxes, 1)
+
         losses = {}
+        losses.update(self.loss_labels(outputs, targets, indices))
+        losses.update(self.loss_boxes(outputs, targets, indices, num_boxes))
         return losses

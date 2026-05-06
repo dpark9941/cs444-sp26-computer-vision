@@ -190,18 +190,37 @@ class SimpleDETR(nn.Module):
 
         # TODO: self.input_proj is a 1x1 convolution that projects the backbone's output feature
         # dimension to the transformer's hidden dimension d_model.
+        self.input_proj = nn.Conv2d(self.backbone.out_channels, d_model, kernel_size=1)
 
         # TODO: Initialize self.transformer as a Transformer with the specified hyperparameters.
         # Refer to https://docs.pytorch.org/docs/stable/generated/torch.nn.Transformer.html.
+        self.transformer = nn.Transformer(
+            d_model=d_model,
+            nhead=nhead,
+            num_encoder_layers=num_encoder_layers,
+            num_decoder_layers=num_decoder_layers,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
+            batch_first=True
+            )
 
         # TODO: self.query_embed is a learnable embedding of shape [num_queries, d_model].
         # You can use nn.Embedding to initialize it.
+        self.query_embed = nn.Embedding(num_queries, d_model)
+        # nn.Embeding: learnable lookup table
+        # num_quries: number of objects to find in the input image
+        # d_model: dimension of the embedding vector for each query. must equal to the transformer's hidden dimension
 
         # TODO: self.class_embed is a linear layer that projects the transformer's
         # decoder output to class logits. Account for the extra "no object" class.
+        self.class_embed = nn.Linear(d_model, num_classes+1)
+        # nn.Linear: Linear Transformation from 256-dimension decoder output to 21-dimesion logits
+        # d_model: Decoder output dimension
+        # num_classes+1: number of output classes (20 foreground + 1 "no object" class)
 
         # TODO: self.bbox_embed is a 3-layer MLP that projects the decoder output
         # to 4 box coordinates. Use the provided MLP class.
+        self.bbox_embed = MLP(d_model, dim_feedforward, 4, num_layers=3)
 
     def forward(
         self,
@@ -223,9 +242,10 @@ class SimpleDETR(nn.Module):
         x, mask = pad_images_to_batch(images, pad_size_multiple=input_size_multiple)
 
         # TODO: Extract a feature map from the backbone
+        feature_map = self.backbone(x)
 
         # TODO: Project the backbone features to the transformer hidden size
-        src = ...
+        src = self.input_proj(feature_map)
 
         # The padding mask is at full image resolution but src is spatially smaller.
         # Use F.interpolate to resize it.
@@ -236,23 +256,35 @@ class SimpleDETR(nn.Module):
         )
 
         # TODO: Get a positional encoding using src and the mask.
+        pos = self.position_embedding(src, mask)
 
         # TODO: The backbone gives [B, C, H, W] but the transformer expects [B, seq_len, C].
         # You will need to flatten the spatial dimensions and transpose. Make sure
         # the positional encoding and the mask are processed the same way.
+        src = src.flatten(2).permute(0,2,1)
+        mask = mask.flatten(1)
+        pos = pos.flatten(2).permute(0,2,1)
 
         # TODO: Expand query_embed to the batch dimension so every image gets the same
         # set of learned queries.
+        expand = self.query_embed.weight.unsqueeze(0).expand(x.shape[0],-1,-1)
 
         # TODO: src with positional encoding goes into the encoder, while query
         # embeddings go into the decoder. Ensure appropriate masking.
+        transformer_out = self.transformer(                                                                                                                                           
+            src=src+pos,
+            tgt=expand,                                                                                                                             
+            src_key_padding_mask=mask
+        )
 
         # TODO: Project the decoder output to class logits.
+        pred_logits = self.class_embed(transformer_out)
 
         # TODO: Project to box coordinates, then apply sigmoid to keep
         # predictions in [0, 1]. Without it the model can predict boxes outside the image.
+        pred_boxes = self.bbox_embed(transformer_out).sigmoid()
 
         return {
-            "pred_logits": ...,
-            "pred_boxes": ...,
+            "pred_logits": pred_logits,
+            "pred_boxes": pred_boxes,
         }
